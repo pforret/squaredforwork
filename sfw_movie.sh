@@ -15,7 +15,8 @@ flag|v|verbose|output more
 flag|f|force|do not ask for confirmation (always yes)
 option|l|log_dir|folder for log files |log
 option|t|tmp_dir|folder for temp files|.tmp
-option|r|resize|resize WxH|100x150
+# 600x750 is max aspect ratio for instagram
+option|r|resize|resize WxH|60x75
 option|e|extension|output extension|m4v
 option|p|steps|steps done by primitive|800
 param|1|action|action to perform: image/film
@@ -71,31 +72,35 @@ image2movie(){
     convert $1 -resize ${resize}^ -gravity center -crop ${resize}+0+0 +repage "$smalljpg"
   fi
 
-  gifmovie="$tmp_dir/$(basename $2 .$extension).primitive.gif"
-  if [[ ! -f "$gifmovie" ]] ; then
-    out "Create animated gif with primitive: [$gifmovie]"
+  gifreveal="$tmp_dir/$(basename $2 .$extension).primitive.gif"
+  if [[ ! -f "$gifreveal" ]] ; then
+    out "Create animated gif with primitive: [$gifreveal]"
     width=$(echo "$resize" | cut -dx -f1)
-    primitive -i "$smalljpg" -o "$gifmovie" -s 1200 -r $width -n $steps -m 7 -bg FFFFFF
+    primitive -i "$smalljpg" -o "$gifreveal" -s 1200 -r $width -n $steps -m 7 -bg FFFFFF
   fi
 
-  movie1="$tmp_dir/$(basename $2 .$extension).primitive.mts"
-  if [[ ! -f "$movie1" ]] ; then
-    out "Convert GIF to $extension: [$movie1]"
-    #ffmpeg -i "$gifmovie" -vcodec libx264 -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart -filter:v "setpts=0.40*PTS" -y "$movie1"
-    ffmpeg -i "$gifmovie" -vcodec libx264 -pix_fmt yuv420p -filter:v "setpts=0.50*PTS" -r 12 -y "$movie1" 2> /dev/null
+  mtsreveal="$tmp_dir/$(basename $2 .$extension).primitive.mts"
+  if [[ ! -f "$mtsreveal" ]] ; then
+    out "Convert GIF to $extension: [$mtsreveal]"
+    # -vf "drawtext=text='Guess the movie?':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=24:fontcolor=white"
+    ffmpeg -i "$gifreveal" -vcodec libx264 -pix_fmt yuv420p -r 12 \
+      -filter_complex "[0]split[base][text]; [text]drawtext=text='Guess the movie?': fontcolor=black:fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
+      -y "$mtsreveal"  2> /dev/null
   fi
 
   lastframe="$tmp_dir/$(basename $2 .$extension).last.jpg"
   if [[ ! -f "$lastframe" ]] ; then
     out "Get last frame from gif: [$lastframe]"
-    ffmpeg -sseof -3 -i "$gifmovie" -update 1 -q:v 1 -y "$lastframe" 2> /dev/null
+    ffmpeg -sseof -3 -i "$gifreveal" -update 1 -q:v 1 -y "$lastframe"  2> /dev/null
   fi
 
   gifsize=$(identify -verbose "$lastframe" | awk '/Geometry/ {print $2}' | cut -d+ -f1)
   sharpframe="$tmp_dir/$(basename $2 .$extension).sharp.jpg"
   if [[ ! -f "$sharpframe" ]] ; then
     out "Get sharp frame from input: [$sharpframe]"
-    convert $1 -resize ${gifsize}^ -gravity center -crop ${gifsize}+0+0 +repage "$sharpframe"
+    convert $1 -resize ${gifsize}^ -gravity center -crop ${gifsize}+0+0 +repage \
+    -font fonts/AmaticSC-Bold.ttf -fill white -gravity North  -pointsize 40 -annotate +0+10 'Source: @squaredforwork - Music: www.bensound.com' \
+    "$sharpframe" 2> /dev/null
   fi
 
   xfade="$tmp_dir/$(basename $2 .$extension).xfade.mts"
@@ -112,14 +117,14 @@ image2movie(){
   if [[ ! -f "$concat" ]] ; then
     out "Concat both videos: [$2]"
     playlist="$tmp_dir/$(basename $2 .$extension).playlist.txt"
-    echo "file '$(basename $movie1)'" > "$playlist"
+    echo "file '$(basename $mtsreveal)'" > "$playlist"
     echo "file '$(basename $xfade)'" >> "$playlist"
     ffmpeg -f concat -safe 0 -i "$playlist" -c copy -y "$concat"  2> /dev/null
   fi
 
   if [[ ! -f "$2" ]] ; then
     out "Add audio to video: [$2]"
-    ffmpeg -i "$concat" -i "audio/bensound-adventure.mp3" -t 30 -af "afade=t=out:st=20:d=10" -y "$2"  2> /dev/null
+    ffmpeg -i "$concat" -i "audio/bensound-adventure.mp3" -t 40 -af "afade=t=out:st=30:d=10" -y "$2"  2> /dev/null
   fi
 
 }
