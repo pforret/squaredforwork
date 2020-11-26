@@ -13,13 +13,16 @@ flag|h|help|show usage
 flag|q|quiet|no output
 flag|v|verbose|output more
 flag|f|force|do not ask for confirmation (always yes)
-option|l|log_dir|folder for log files |log
-option|t|tmp_dir|folder for temp files|.tmp
-# 600x750 is max aspect ratio for instagram
-option|r|resize|resize WxH|60x75
+option|b|border|add border to original image|0
+option|c|copy|copy output files to this folder|
 option|e|extension|output extension|m4v
-option|p|steps|steps done by primitive|800
-param|1|action|action to perform: image/film
+option|l|log_dir|folder for log files |log
+option|o|opening|opening text|Guess the movie?
+option|p|steps|steps done by primitive|600
+option|r|resize|resize WxH|120x180
+option|t|tmp_dir|folder for temp files|.tmp
+option|x|export|export for tiktok/instagram/...|
+param|1|action|action to perform: image/imdb
 param|?|input|input image/film name
 param|?|output|output file
 " | grep -v '^#'
@@ -34,23 +37,17 @@ main() {
     log "Updated: $prog_modified"
     log "Run as : $USER@$HOSTNAME"
     # add programs that need to be installed, like: tar, wget, ffmpeg, rsync, convert, curl ...
-    require_binaries tput uname convert primitive ffmpeg identify
+    require_binaries tput uname convert primitive ffmpeg identify curl htmlq
 
     action=$(lower_case "$action")
-    if [[ "$output" == "-" ]] || [[ "$output" == "" ]] ; then
-      binput=$(basename "$input" .jpg | sed 's| |-|')
-      output="output/$(date '+%Y-%m-%d')_$binput.$extension"
-      folder_prep "output" 30
-    fi
-    log "Output = [$output]"
     case $action in
     image )
         # shellcheck disable=SC2154
         image2movie "$input" "$output"
         ;;
 
-    film )
-        get_film_image "$input" "$film_image"
+    imdb )
+        film_image=$(get_imdb_poster "$input")
         image2movie "$film_image" "$output"
         ;;
 
@@ -64,77 +61,244 @@ main() {
 #####################################################################
 
 image2movie(){
-  # $1 = image
-  # $2 = output file
-  smalljpg="$tmp_dir/$(basename $2 .$extension).small.jpg"
+  # $1 = input image
+  # $2 = output image
+  log "image2movie [$1] [$2]"
+  local input="$1"
+  local output="$2"
+  if [[ "$output" == "-" ]] || [[ "$output" == "" ]] ; then
+    log "Input = [$input]"
+    local binput=$(basename "$input" .jpg | sed 's| |-|')
+    log "Basename = [$binput]"
+    output="output/$(date '+%Y-%m-%d')_$binput.$extension"
+    folder_prep "output" 30
+  fi
+  log "Output = [$output]"
+
+  smalljpg="$tmp_dir/$binput.small.jpg"
   if [[ ! -f "$smalljpg" ]] ; then
-    out "Resize input image to $resize: [$smalljpg]"
-    convert $1 -resize ${resize}^ -gravity center -crop ${resize}+0+0 +repage "$smalljpg"
+    progress "Resize input image to $resize: [$smalljpg]"
+    convert "$input"  -bordercolor black -border $border -resize ${resize}^ -gravity center -crop ${resize}+0+0 +repage "$smalljpg"
   fi
 
-  gifreveal="$tmp_dir/$(basename $2 .$extension).primitive.gif"
+  gifreveal="$tmp_dir/$binput.prim.$steps.gif"
   if [[ ! -f "$gifreveal" ]] ; then
-    out "Create animated gif with primitive: [$gifreveal]"
+    progress "Create animated gif with primitive: [$gifreveal]"
     width=$(echo "$resize" | cut -dx -f1)
     primitive -i "$smalljpg" -o "$gifreveal" -s 1200 -r $width -n $steps -m 7 -bg FFFFFF
   fi
+  video_details "$gifreveal"
 
-  mtsreveal="$tmp_dir/$(basename $2 .$extension).primitive.mts"
-  if [[ ! -f "$mtsreveal" ]] ; then
-    out "Convert GIF to $extension: [$mtsreveal]"
+  movreveal="$tmp_dir/$binput.prim.$steps.mp4"
+  if [[ ! -f "$movreveal" ]] ; then
+    progress "Convert GIF to MOV: [$movreveal]"
     # -vf "drawtext=text='Guess the movie?':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=24:fontcolor=white"
-    ffmpeg -i "$gifreveal" -vcodec libx264 -pix_fmt yuv420p -r 12 \
-      -filter_complex "[0]split[base][text]; [text]drawtext=text='Guess the movie?': fontcolor=black:fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
-      -y "$mtsreveal"  2> /dev/null
+    ffmpeg -i "$gifreveal" -vcodec libx264 -pix_fmt yuv420p -t 40 -r 12 \
+      -filter_complex "[0]split[base][text]; [text]drawtext=text='$opening': fontcolor=black:fontsize=150:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
+      -y "$movreveal"  2> /dev/null
   fi
+  video_details "$movreveal"
 
-  lastframe="$tmp_dir/$(basename $2 .$extension).last.jpg"
+  lastframe="$tmp_dir/$binput.last.$steps.jpg"
   if [[ ! -f "$lastframe" ]] ; then
-    out "Get last frame from gif: [$lastframe]"
-    ffmpeg -sseof -3 -i "$gifreveal" -update 1 -q:v 1 -y "$lastframe"  2> /dev/null
+    progress "Get last frame from gif: [$lastframe]"
+    ffmpeg -sseof -3 -i "$movreveal" -update 1 -q:v 1 -y "$lastframe"  2> /dev/null
   fi
 
   gifsize=$(identify -verbose "$lastframe" | awk '/Geometry/ {print $2}' | cut -d+ -f1)
-  sharpframe="$tmp_dir/$(basename $2 .$extension).sharp.jpg"
+  sharpframe="$tmp_dir/$binput.sharp.jpg"
   if [[ ! -f "$sharpframe" ]] ; then
-    out "Get sharp frame from input: [$sharpframe]"
-    convert $1 -resize ${gifsize}^ -gravity center -crop ${gifsize}+0+0 +repage \
-    -font fonts/AmaticSC-Bold.ttf -fill white -gravity North  -pointsize 40 -annotate +0+10 'Source: @squaredforwork - Music: www.bensound.com' \
+    progress "Get sharp frame from input: [$sharpframe]"
+    convert "$input" -bordercolor black -border $border -resize ${gifsize}^ -gravity center -crop ${gifsize}+0+0 +repage \
+      -font fonts/AmaticSC-Bold.ttf -fill white -gravity North  -pointsize 32 -undercolor "rgba(0,0,0,0.5)" \
+      -annotate +0+8 '< Concept: @squaredforwork - Music: www.bensound.com >' \
     "$sharpframe" 2> /dev/null
   fi
 
-  xfade="$tmp_dir/$(basename $2 .$extension).xfade.mts"
+  xfade="$tmp_dir/$binput.xfade.$steps.mp4"
   if [[ ! -f "$xfade" ]] ; then
-    out "Create x-fade to sharp: [$xfade]"
-    length=5
+    progress "Create x-fade to sharp: [$xfade]"
+    length=4
 
     ffmpeg -loop 1 -i "$lastframe" -loop 1 -i "$sharpframe" -r 12 -vcodec libx264 -pix_fmt yuv420p \
       -filter_complex "[1:v][0:v]blend=all_expr='A*(if(gte(T,$length),1,T/$length))+B*(1-(if(gte(T,$length),1,T/$length)))'" \
       -t $length -y "$xfade"  2> /dev/null
   fi
+  video_details "$xfade"
 
-  concat="$tmp_dir/$(basename $2 .$extension).concat.mts"
+  concat="$tmp_dir/$binput.concat.$steps.mp4"
   if [[ ! -f "$concat" ]] ; then
-    out "Concat both videos: [$2]"
+    progress "Concat both videos: [$concat]"
     playlist="$tmp_dir/$(basename $2 .$extension).playlist.txt"
-    echo "file '$(basename $mtsreveal)'" > "$playlist"
+    echo "file '$(basename $movreveal)'" > "$playlist"
     echo "file '$(basename $xfade)'" >> "$playlist"
     ffmpeg -f concat -safe 0 -i "$playlist" -c copy -y "$concat"  2> /dev/null
+    rm "$playlist"
   fi
+  video_details "$concat"
 
-  if [[ ! -f "$2" ]] ; then
-    out "Add audio to video: [$2]"
-    ffmpeg -i "$concat" -i "audio/bensound-adventure.mp3" -t 40 -af "afade=t=out:st=30:d=10" -y "$2"  2> /dev/null
+  if [[ ! -f "$output" ]] ; then
+    progress "Add audio to video: [$output]"
+    ffmpeg -i "$concat" -i "audio/bensound-adventure.mp3" -t 44 -af "afade=t=out:st=40:d=4" -y "$output"  2> /dev/null
   fi
+  video_details "$output"
+  [[ -n "$copy" ]] && cp "$output" "$copy/"
 
+  case "$export" in
+    instagram|ig )
+      newvideo=$(echo "$output" | sed "s/$extension/instagram.$extension/")
+      width=1080
+      height=1350
+      if [[ ! -f "$newvideo" ]] ; then
+        progress "generate [$newvideo]"
+        ffmpeg -i "$output" \
+          -vf "scale=$width:$height:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2" \
+          -y "$newvideo" \
+          2> /dev/null
+      fi 
+      video_details "$newvideo"
+      [[ -n "$copy" ]] && cp "$newvideo" "$copy/"
+
+      ;;
+    tiktok|tt )
+      newvideo=$(echo "$output" | sed "s/$extension/tiktok.$extension/")
+      width=1080
+      height=1920
+      if [[ ! -f "$newvideo" ]] ; then
+        progress "generate [$newvideo]"
+        ffmpeg -i "$2" \
+          -vf "scale=$width:$height:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2" \
+          -y "$newvideo" \
+          2> /dev/null
+      fi 
+      video_details "$newvideo"
+      [[ -n "$copy" ]] && cp "$newvideo" "$copy/"
+      ;;
+    *)
+  esac
+
+  rm "$smalljpg" "$movreveal" "$lastframe" "$sharpframe" "$xfade" "$concat"
 }
 
-get_film_image(){
-  echo "ACTION 2"
-  # < "$1"  do_other_stuff > "$2"
+get_imdb_poster(){
+  folder_prep done 365
+  # $1  = source
+  chosen=0
+  while [[ $chosen -eq 0 ]] ; do
+    titleid=$(pick_random_imdb "$1")
+    log "check title $titleid ..."
+    if [[ ! -f done/$titleid.done.txt ]] ; then
+      poster_image=$(download_imdb_poster "$titleid")
+      if [[ -n "$poster_image" ]] ; then
+        chosen=1
+        date > done/$titleid.done.txt
+      fi
+    fi
+  done
+  echo "$poster_image"
+  # found a $titleid that has not been used before
 }
 
+download_imdb_poster(){
+  # $1 = tt99999 movie id
+  # e.g. https://www.imdb.com/title/tt8503618/
+  # <img alt="Hamilton Poster" src="https://m.media-amazon.com/images/M/MV5BNjViNWRjYWEtZTI0NC00N2E3LTk0NGQtMjY4NTM3OGNkZjY0XkEyXkFqcGdeQXVyMjUxMTY3ODM@._V1_UX182_CR0,0,182,268_AL_.jpg" title="Hamilton Poster">
 
+  title=$(curl -s "https://www.imdb.com/title/$1/" \
+  | htmlq a \
+  | grep ' Poster' \
+  | htmlq -a title img \
+  | sed 's/ Poster//')
+  [[ -z "$title" ]] && return ""
+  log "Movie title: [$title]"
+
+  # find image page for poster
+  page_poster=$(curl -s "https://www.imdb.com/title/$1/" \
+  | htmlq -a href a \
+  | grep /title \
+  | grep mediaviewer \
+  | head -1)
+  [[ -z "$page_poster" ]] && return ""
+  page_poster="https://www.imdb.com$page_poster"
+  log "Poster page = [$page_poster]"
+
+  img_poster=$(curl -s "$page_poster" \
+  | htmlq -a src img \
+  | head -1)
+  [[ -z "$img_poster" ]] && return ""
+  log "Poster image = [$img_poster]"
+ 
+  poster=image/$1.$(tokenize "$title").jpg
+  log "Save to [$poster]"
+  curl -s "$img_poster" -o "$poster"
+  echo "$poster"
+}
+
+pick_random_imdb(){
+    source_url=
+  case "$1" in
+    box )       source_url="https://www.imdb.com/chart/boxoffice" ;;
+    coming )    source_url="https://www.imdb.com/movies-coming-soon/" ;;
+    future )    source_url="https://www.imdb.com/chart/moviemeter" ;;
+    newtop )    source_url="https://www.imdb.com/chart/top/?sort=us,desc&mode=simple&page=1" ;;
+    newtv )     source_url="https://www.imdb.com/chart/tvmeter?sort=us,desc&mode=simple&page=1" ;;
+    top )       source_url="https://www.imdb.com/chart/top/" ;;
+    tv )        source_url="https://www.imdb.com/chart/tvmeter" ;;
+    * )         source_url="https://www.imdb.com/chart/top/"
+  esac
+
+  if [[ "$1" == "random" ]] ; then
+  source_url=$(cat <<END | shuf -n 1
+https://www.imdb.com/chart/boxoffice
+https://www.imdb.com/chart/boxoffice?sort=us,desc&mode=simple&page=1
+https://www.imdb.com/chart/moviemeter
+https://www.imdb.com/chart/moviemeter?sort=us,desc&mode=simple&page=1
+https://www.imdb.com/chart/top/
+https://www.imdb.com/chart/top/?sort=us,desc&mode=simple&page=1
+https://www.imdb.com/movies-coming-soon/
+https://www.imdb.com/movies-coming-soon/?sort=us,desc&mode=simple&page=1
+END
+)
+  fi
+
+  curl -s "$source_url" \
+  | htmlq a \
+  | grep "/title/tt" \
+  | grep -Eo "(tt[0-9]+)" \
+  | sort -u \
+  | shuf -n 1
+}
+
+video_details(){
+  # $1 = video file
+  # Input #0, gif, from '.tmp/2020-11-25_bad-boys.primitive.gif':
+  # Duration: 00:00:49.50, start: 0.000000, bitrate: 3765 kb/s
+  #   Stream #0:0: Video: gif, bgra, 800x1200, 2 fps, 2 tbr, 100 tbn
+
+  # Input #0, mpegts, from '.tmp/2020-11-25_bad-boys.xfade.mts':
+  # Duration: 00:00:05.00, start: 1.566667, bitrate: 1543 kb/s
+  # Program 1 
+  #   Metadata:
+  #     service_name    : Service01
+  #     service_provider: FFmpeg
+  #   Stream #0:0[0x100]: Video: h264 (High) ([27][0][0][0] / 0x001B), yuv420p(progressive), 800x1200 [SAR 1:1 DAR 2:3], 12 fps, 12 tbr, 90k tbn, 24 tbc
+
+  fname=$(basename "$1")
+  ffmpeg -i "$1" 2>&1 \
+  | tr ',' "\n" \
+  | tr '[' "\n" \
+  | awk -v fname="$fname" '
+  /Duration:/ {gsub(/00:/,""); printf("%-40s: %s sec ",fname,$0);} 
+  /[0-9][0-9]+x[0-9]+/ {printf("%s ",$0);} 
+  /[0-9]+ fps/ {printf("%s ",$0);} 
+  END {print "               "}'
+}
+
+tokenize(){
+  lower_case "$1" \
+  | sed 's/[^0-9a-z_\s ]//g' \
+  | sed 's/ /-/g'
+}
 #####################################################################
 ################### DO NOT MODIFY BELOW THIS LINE ###################
 
