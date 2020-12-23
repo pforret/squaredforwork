@@ -13,23 +13,40 @@ flag|h|help|show usage
 flag|q|quiet|no output
 flag|v|verbose|output more
 flag|f|force|do not ask for confirmation (always yes)
-flag|1|instagram|export for instagram
-flag|2|tiktok|export for tiktok
-flag|3|facebook|export for facebook
+option|1|instagram|export folder for instagram|
+option|2|tiktok|export folder for tiktok|
+option|3|facebook|export folder for facebook|
 option|b|border|add border to original image|0
-option|c|copy|copy output files to this folder|
+option|c|credits|credits to add at the end|< Concept: @squaredforwork >
 option|e|extension|output extension|m4v
 option|l|log_dir|folder for log files |log
 option|o|opening|opening text|Guess the movie?
 option|p|steps|steps done by primitive|600
 option|r|resize|resize WxH|120x180
 option|t|tmp_dir|folder for temp files|.tmp
+option|i|img_dir|folder for poster images|image
+option|j|out_dir|folder for output movies|output
 param|1|action|action to perform: image/imdb
 param|?|input|input image/film name
-param|?|output|output file
+param|?|output|output file or '-' for automatic filename
 " | grep -v '^#'
 }
 
+list_dependencies(){
+  echo -n "
+# convert is part of the package imagemagick
+convert|imagemagick
+curl
+ffmpeg
+# htmlq in a rust package, installed with cargo
+htmlq|cargo install htmlq
+identify|imagemagick
+# primitive is a go package, installed with go
+primitive|go get -u github.com/fogleman/primitive
+# shuf is part of the package coreutils
+shuf|coreutils
+" | grep -v "^#"
+}
 #####################################################################
 ## Put your main script here
 #####################################################################
@@ -38,9 +55,9 @@ main() {
   log "Program: $script_basename $script_version"
   log "Updated: $prog_modified"
   log "Run as : $USER@$HOSTNAME"
-  # add programs that need to be installed, like: tar, wget, ffmpeg, rsync, convert, curl ...
-  require_binaries uname convert primitive ffmpeg identify curl htmlq
-
+  require_binaries
+  folder_prep image 30
+  folder_prep output 30
   action=$(lower_case "$action")
   title=""
   case $action in
@@ -76,7 +93,7 @@ image2movie() {
     input_short=$(basename "$input" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|')
     log "Basename = [$input_short]"
     # shellcheck disable=SC2154
-    output="output/$(date '+%Y-%m-%d')_$input_short.$extension"
+    output="$out_dir/$(date '+%Y-%m-%d')_$input_short.$extension"
     folder_prep "output" 30
   fi
   log "Output = [$output]"
@@ -139,7 +156,7 @@ image2movie() {
     # shellcheck disable=SC2086
     convert "$input" -bordercolor black -border "$border" -resize "${gif_resolution}"^ -gravity center -crop "${gif_resolution}+0+0" +repage \
       -font fonts/AmaticSC-Bold.ttf -fill white -gravity North -pointsize 32 -undercolor "rgba(0,0,0,0.5)" \
-      -annotate +0+8 '< Concept: @squaredforwork - Music: www.bensound.com >' \
+      -annotate +0+8 "$credits" \
       "$frame_sharp" 2>/dev/null
   fi
 
@@ -171,11 +188,11 @@ image2movie() {
   fi
   video_details "$output"
   # shellcheck disable=SC2154
-  [[ -n "$copy" ]] && cp "$output" "$copy/"
 
   # shellcheck disable=SC2154
-  if [[ "$instagram" -gt 0 ]]; then
-    modification="${output//$extension/ig.$extension}"
+  if [[ -n "$instagram" ]]; then
+    b_output=$(basename "$output")
+    modification="$instagram/${b_output//$extension/ig.$extension}"
     width=1080
     height=1350
     if [[ ! -f "$modification" ]]; then
@@ -186,12 +203,12 @@ image2movie() {
         2>/dev/null
     fi
     video_details "$modification"
-    [[ -n "$copy" ]] && cp "$modification" "$copy/"
   fi
 
   # shellcheck disable=SC2154
-  if [[ "$tiktok" -gt 0 ]]; then
-    modification="${output//$extension/tt.$extension}"
+  if [[ -n "$tiktok" ]]; then
+    b_output=$(basename "$output")
+    modification="$tiktok/${b_output//$extension/tt.$extension}"
     width=1080
     height=1920
     if [[ ! -f "$modification" ]]; then
@@ -202,12 +219,12 @@ image2movie() {
         2>/dev/null
     fi
     video_details "$modification"
-    [[ -n "$copy" ]] && cp "$modification" "$copy/"
   fi
 
   # shellcheck disable=SC2154
-  if [[ "facebook" -gt 0 ]]; then
-    modification="${output//$extension/fb.$extension}"
+  if [[ -n "$facebook" ]]; then
+    b_output=$(basename "$output")
+    modification="$facebook/${b_output//$extension/fb.$extension}"
     if [[ ! -f "$modification" ]]; then
       progress "generate [$modification]"
       temp_list="$input_short.fb.txt"
@@ -216,27 +233,38 @@ image2movie() {
       ffmpeg -f concat -safe 0 -i "$temp_list" -t 47 -c copy \
         -y "$modification" \
         2> /dev/null
+      rm "$temp_list"
     fi
     video_details "$modification"
-    [[ -n "$copy" ]] && cp "$modification" "$copy/"
   fi
 
-  rm "$smalljpg" "$reveal_movie" "$frame_last" "$frame_sharp" "$xfade" "$concat" "$temp_list"
+  rm "$smalljpg" "$reveal_movie" "$frame_last" "$frame_sharp" "$xfade" "$concat"
 }
 
 get_imdb_poster() {
   folder_prep "done" 365
   # $1  = source
   chosen=0
+  if [[ "$1" = tt* ]] ; then
+      poster_image=$(download_imdb_poster "$1")
+      if [[ -n "$poster_image" ]]; then
+        chosen=1
+        (
+          echo "$title"
+          date
+        ) >"done/$1.done.txt"
+      fi
+
+  fi
   while [[ $chosen -eq 0 ]]; do
     imdb_id=$(pick_random_imdb "$1")
     log "check title $imdb_id ..."
-    if [[ ! -f done/$imdb_id.done.txt ]]; then
+    if [[ ! -f "done/$imdb_id.done.txt" ]]; then
       poster_image=$(download_imdb_poster "$imdb_id")
       if [[ -n "$poster_image" ]]; then
         chosen=1
         (
-          echo $title
+          echo "$title"
           date
         ) >"done/$imdb_id.done.txt"
       fi
@@ -255,7 +283,7 @@ download_imdb_poster() {
     htmlq -a title img |
     sed 's/ Poster//')
   [[ -z "$title" ]] && echo "" && return 0
-  log "Movie title: [$title]"
+  success "Movie title: [$title]" >&2
 
   # find image page for poster
   page_poster=$(curl -s "https://www.imdb.com/title/$1/" |
@@ -273,7 +301,7 @@ download_imdb_poster() {
   [[ -z "$img_poster" ]] && echo "" && return 0
   log "Poster image = [$img_poster]"
 
-  poster=image/$1.$(tokenize "$title").jpg
+  poster="$img_dir/$1.$(tokenize "$title").jpg"
   log "Save to [$poster]"
   curl -s "$img_poster" -o "$poster"
   echo "$poster"
@@ -581,12 +609,34 @@ require_binaries() {
   os_name=$(uname -s)
   os_version=$(uname -sprm)
   log "Running: $SHELL on $os_name ($os_version)"
-  list_programs=$(echo "$*" | sort -u | tr "\n" " ")
-  log "Verify : $list_programs"
-  for prog in "$@"; do
+  local required_binary
+  local install_instructions
+  list_dependencies \
+  | while read -r line ; do
+    required_binary=$(echo "$line" | cut -d'|' -f1)
+    [[ -z "$required_binary" ]] && continue
+    log "Check for existence of [$required_binary]"
+    install_instructions=$(echo "$line" | cut -d'|' -f2)
+    if [[ -z "$install_instructions" ]] ; then
+      case $os_name in
+      Darwin) install_instructions="brew install $required_binary" ;;
+      Linux)
+        distribution=""
+        [[ -f /etc/os-release ]] && distribution=$(< /etc/os-release grep '^NAME=' | head -1 | cut -d= -f2 | sed 's/"//g' )
+        case $distribution in
+        Ubuntu) install_instructions="(sudo) apt install $required_binary";;
+        Fedora) install_instructions="(sudo) yum install $required_binary";;
+        *)      install_instructions="install $required_binary with your package management";;
+        esac
+         ;;
+      esac
+    fi
     # shellcheck disable=SC2230
-    if [[ -z $(which "$prog") ]]; then
-      die "$script_basename needs [$prog] but this program cannot be found in path\nPATH=$PATH"
+    if [[ -z $(which "$required_binary") ]]; then
+      alert "$script_basename needs [$required_binary] but it cannot be found"
+      alert "Option 1: install it with [$install_instructions]"
+      alert "Option 2: export PATH=\"[path of your binary]:\$PATH\""
+      die "Cannot continue without [$required_binary]"
     fi
   done
 }
@@ -735,7 +785,6 @@ lookup_script_data() {
   readonly script_prefix=$(basename "${BASH_SOURCE[0]}" .sh)
   readonly script_basename=$(basename "${BASH_SOURCE[0]}")
   readonly execution_day=$(date "+%Y-%m-%d")
-  readonly execution_year=$(date "+%Y")
 
   if [[ -z $(dirname "${BASH_SOURCE[0]}") ]]; then
     # script called without path ; must be in $PATH somewhere
@@ -767,11 +816,6 @@ lookup_script_data() {
   log "In folder : [$script_install_folder]"
 
   [[ -f "$script_install_folder/VERSION.md" ]] && script_version=$(cat "$script_install_folder/VERSION.md")
-  if git status >/dev/null; then
-    readonly in_git_repo=1
-  else
-    readonly in_git_repo=0
-  fi
 }
 
 prep_log_and_temp_dir() {

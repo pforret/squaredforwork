@@ -1,6 +1,8 @@
 .DS_Store
 .idea/
 .tmp/
+done/
+image/
 log/
 output/
 sfw_latest.log
