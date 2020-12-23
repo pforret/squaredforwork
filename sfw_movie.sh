@@ -95,23 +95,8 @@ image2movie() {
   if [[ ! -f "$reveal_gif" ]]; then
     progress "Create animated gif with primitive: [$reveal_gif]"
     width=$(echo "$resize" | cut -dx -f1)
-    primitive -i "$smalljpg" -o "$reveal_gif" -s 1200 -r "$width" -n "$steps" -m 7 -bg FFFFFF -v |
-      awk -v total_lines="$((steps + 4))" -v update_every="5" '
-		BEGIN {
-			fullbar="---------|---------|---------|---------|---------|---------|---------|---------|---------|---------!"
-			maxlen=length(fullbar)
-		}
-		(NR % update_every) == 1 {
-			percent=100*NR/total_lines; width=maxlen*NR/total_lines;
-			if(width>maxlen){width=maxlen}; if(width<1){width=1};
-			partial=substr(fullbar,1,width)
-			printf("\r[%s] %d%%       " , partial , percent)
-			fflush()
-		}
-		END {
-			printf "\n"
-		}
-		'
+    primitive -i "$smalljpg" -o "$reveal_gif" -s 1200 -r "$width" -n "$steps" -m 7 -bg FFFFFF -v \
+    | progressbar lines "sfw.primitive.$steps"
   fi
   video_details "$reveal_gif"
 
@@ -120,9 +105,9 @@ image2movie() {
     progress "Convert GIF to MOV: [$reveal_movie]"
     # -vf "drawtext=text='Guess the movie?':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=24:fontcolor=white"
     # shellcheck disable=SC2154
-    ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -t 40 -r 12 \
+    ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -ss 1 -t 40 -r 12 \
       -filter_complex "[0]split[base][text]; [text]drawtext=text='$opening': fontcolor=black:fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
-      -y "$reveal_movie" 2>/dev/null
+      -y "$reveal_movie" 2>&1 | progressbar lines "sfw.gif2mp4.$steps"
   fi
   video_details "$reveal_movie"
 
@@ -138,8 +123,8 @@ image2movie() {
     progress "Get sharp frame from input: [$frame_sharp]"
     # shellcheck disable=SC2086
     convert "$input" -bordercolor black -border "$border" -resize "${gif_resolution}"^ -gravity center -crop "${gif_resolution}+0+0" +repage \
-      -font fonts/AmaticSC-Bold.ttf -fill white -gravity North -pointsize 32 -undercolor "rgba(0,0,0,0.5)" \
-      -annotate +0+8 '< Concept: @squaredforwork - Music: www.bensound.com >' \
+      -font fonts/AmaticSC-Bold.ttf -fill white -gravity North -pointsize 40 -undercolor "rgba(0,0,0,0.7)" \
+      -annotate +0+8 ' Concept: @squaredforwork \n music: soundcloud.com/pforret ' \
       "$frame_sharp" 2>/dev/null
   fi
 
@@ -167,7 +152,7 @@ image2movie() {
 
   if [[ ! -f "$output" ]]; then
     progress "Add audio to video: [$output]"
-    ffmpeg -i "$concat" -i "audio/bensound-adventure.mp3" -t 45 -af "afade=t=out:st=40:d=5" -y "$output" 2>/dev/null
+    ffmpeg -i "$concat" -i "audio/love_taken_over.wav" -t 45 -af "afade=t=out:st=40:d=5" -y "$output" 2>/dev/null
   fi
   video_details "$output"
   # shellcheck disable=SC2154
@@ -216,12 +201,14 @@ image2movie() {
       ffmpeg -f concat -safe 0 -i "$temp_list" -t 47 -c copy \
         -y "$modification" \
         2> /dev/null
+      rm "$temp_list"
     fi
     video_details "$modification"
     [[ -n "$copy" ]] && cp "$modification" "$copy/"
   fi
 
-  rm "$smalljpg" "$reveal_movie" "$frame_last" "$frame_sharp" "$xfade" "$concat" "$temp_list"
+  rm "$smalljpg" "$reveal_movie" "$frame_last" "$frame_sharp" "$xfade" "$concat"
+  open output
 }
 
 get_imdb_poster() {
