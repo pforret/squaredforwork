@@ -1,0 +1,3 @@
+tput: No value for $TERM and no -T specified
+✖ sfw_movie.sh: sfw_movie.sh needs [convert] but this program cannot be found in path
+PATH=/usr/bin:/bin
