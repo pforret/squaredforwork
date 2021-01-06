@@ -20,6 +20,7 @@ option|b|border|add border to original image|0
 option|c|credits|credits to add at the end|< Concept: @squaredforwork >
 option|e|extension|output extension|m4v
 option|l|log_dir|folder for log files |log
+option|m|method|primitive method|7
 option|o|opening|opening text|Guess the movie?
 option|p|steps|steps done by primitive|600
 option|r|resize|resize WxH|120x180
@@ -34,18 +35,15 @@ param|?|output|output file or '-' for automatic filename
 
 list_dependencies(){
   echo -n "
-# convert is part of the package imagemagick
 convert|imagemagick
 curl
 ffmpeg
-# htmlq in a rust package, installed with cargo
+gawk
 htmlq|cargo install htmlq
 identify|imagemagick
-# primitive is a go package, installed with go
 primitive|go get -u github.com/fogleman/primitive
-# shuf is part of the package coreutils
-shuf|coreutils
 progressbar|basher install pforret/progressbar
+shuf|coreutils
 " | grep -v "^#"
 }
 #####################################################################
@@ -53,6 +51,7 @@ progressbar|basher install pforret/progressbar
 #####################################################################
 
 main() {
+  out "----- $script_prefix $input started"
   log "Program: $script_basename $script_version"
   log "Updated: $prog_modified"
   log "Run as : $USER@$HOSTNAME"
@@ -76,6 +75,7 @@ main() {
     die "action [$action] not recognized"
     ;;
   esac
+  out "----- $script_prefix finished after $SECONDS seconds"
 }
 
 #####################################################################
@@ -86,15 +86,15 @@ image2movie() {
   # $1 = input image
   # $2 = output image
   log "image2movie [$1] [$2]"
-  local input="$1"
+  local input_image="$1"
   local output="$2"
   local input_short
-  if [[ "$output" == "-" ]] || [[ "$output" == "" ]]; then
-    log "Input = [$input]"
-    input_short=$(basename "$input" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|')
+  if [[ "$output" == "-" || "$output" == "" ]]; then
+    log "Input = [$input_image]"
+    input_short=$(basename "$input_image" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|')
     log "Basename = [$input_short]"
     # shellcheck disable=SC2154
-    output="$out_dir/$(date '+%Y-%m-%d')_$input_short.$extension"
+    output="$out_dir/$input.$input_short.$extension"
     folder_prep "output" 30
   fi
   log "Output = [$output]"
@@ -105,7 +105,7 @@ image2movie() {
     # shellcheck disable=SC2154
     progress "Resize input image to $resize: [$smalljpg]"
     # shellcheck disable=SC2154
-    convert "$input" -bordercolor black -border "$border" -resize "${resize}"^ -gravity center -crop "${resize}+0+0" +repage "$smalljpg"
+    convert "$input_image" -bordercolor black -border "$border" -resize "${resize}"^ -gravity center -crop "${resize}+0+0" +repage "$smalljpg"
   fi
 
   # shellcheck disable=SC2154
@@ -113,7 +113,7 @@ image2movie() {
   if [[ ! -f "$reveal_gif" ]]; then
     progress "Create animated gif with primitive: [$reveal_gif]"
     width=$(echo "$resize" | cut -dx -f1)
-    primitive -i "$smalljpg" -o "$reveal_gif" -s 1200 -r "$width" -n "$steps" -m 7 -bg FFFFFF -v \
+    primitive -i "$smalljpg" -o "$reveal_gif" -s 1200 -r "$width" -n "$steps" -m "$method" -bg FFFFFF -v \
     | progressbar lines "sfw.primitive.$steps"
   fi
   video_details "$reveal_gif"
@@ -125,6 +125,7 @@ image2movie() {
     # shellcheck disable=SC2154
     ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -ss 1 -t 40 -r 12 \
       -filter_complex "[0]split[base][text]; [text]drawtext=text='$opening': fontcolor=black:fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
+      -vcodec libx264 -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart \
       -y "$reveal_movie" 2>&1 | progressbar lines "sfw.gif2mp4.$steps"
   fi
   video_details "$reveal_movie"
@@ -140,7 +141,7 @@ image2movie() {
   if [[ ! -f "$frame_sharp" ]]; then
     progress "Get sharp frame from input: [$frame_sharp]"
     # shellcheck disable=SC2086
-    convert "$input" -bordercolor black -border "$border" -resize "${gif_resolution}"^ -gravity center -crop "${gif_resolution}+0+0" +repage \
+    convert "$input_image" -bordercolor black -border "$border" -resize "${gif_resolution}"^ -gravity center -crop "${gif_resolution}+0+0" +repage \
       -font fonts/AmaticSC-Bold.ttf -fill white -gravity North -pointsize 40 -undercolor "rgba(0,0,0,0.7)" \
       -annotate +0+8 "$credits" \
       "$frame_sharp" 2>/dev/null
@@ -170,10 +171,10 @@ image2movie() {
 
   if [[ ! -f "$output" ]]; then
     progress "Add audio to video: [$output]"
-    ffmpeg -i "$concat" -i "audio/love_taken_over.wav" -t 45 -af "afade=t=out:st=40:d=5" -y "$output" 2>/dev/null
+    # -vcodec libx264 -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -acodec copy -movflags +faststart
+    ffmpeg -i "$concat" -i "audio/love_taken_over.wav" -t 45 -af "afade=t=out:st=40:d=5" -vcodec libx264 -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart -y "$output" 2>/dev/null
   fi
   video_details "$output"
-  # shellcheck disable=SC2154
 
   # shellcheck disable=SC2154
   if [[ -n "$instagram" ]]; then
@@ -288,7 +289,7 @@ download_imdb_poster() {
   [[ -z "$img_poster" ]] && echo "" && return 0
   log "Poster image = [$img_poster]"
 
-  poster="$img_dir/$1.$(tokenize "$title").jpg"
+  poster="$img_dir/$1.$(slugify "$title").jpg"
   log "Save to [$poster]"
   curl -s "$img_poster" -o "$poster"
   echo "$poster"
@@ -483,6 +484,22 @@ lower_case() { echo "$*" | awk '{print tolower($0)}'; }
 upper_case() { echo "$*" | awk '{print toupper($0)}'; }
 #TIP: use «lower_case» and «upper_case» to convert to upper/lower case
 #TIP:> param=$(lower_case $param)
+
+slugify()     {
+    # shellcheck disable=SC2020
+  lower_case "$*" \
+  | tr \
+    'àáâäæãåāçćčèéêëēėęîïííīįìłñńôöòóœøōõßśšûüùúūÿžźż' \
+    'aaaaaaaaccceeeeeeeiiiiiiilnnoooooooosssuuuuuyzzz' \
+  | awk '{
+    gsub(/[^0-9a-z ]/,"");
+    gsub(/^\s+/,"");
+    gsub(/^s+$/,"");
+    gsub(" ","-");
+    print;
+    }' \
+  | cut -c1-50
+  }
 
 confirm() {
   is_set $force && return 0
