@@ -51,16 +51,16 @@ shuf|coreutils
 #####################################################################
 
 main() {
-  out "----- $script_prefix $input started"
-  log "Program: $script_basename $script_version"
-  log "Updated: $prog_modified"
-  log "Run as : $USER@$HOSTNAME"
   require_binaries
   folder_prep image 30
   folder_prep output 30
   action=$(lower_case "$action")
   title=""
   case $action in
+  check)
+    do_check
+    ;;
+
   image)
     # shellcheck disable=SC2154
     image2movie "$input" "$output"
@@ -362,6 +362,36 @@ tokenize() {
     sed 's/[^0-9a-z_\s ]//g' |
     sed 's/ /-/g'
 }
+
+do_check(){
+    echo -n "$char_succ Check dependencies: "
+    list_dependencies | cut -d'|' -f1 | sort | xargs
+
+    echo -n "$char_succ Check flags       : "
+    list_options | grep 'flag|' | cut -d'|' -f3 | sort |
+      while read -r name; do
+        [[ -z "$name" ]] && continue
+        eval "echo -n \"$name=\$${name:-}  \""
+      done
+    echo " "
+
+    echo -n "$char_succ Check options     : "
+    list_options | grep 'option|' | cut -d'|' -f3 | sort |
+      while read -r name; do
+        [[ -z "$name" ]] && continue
+        eval "echo -n \"$name=\\\"\$${name:-}\\\"  \""
+      done
+    echo " "
+
+    echo -n "$char_succ Check parameters  : "
+    list_options | grep 'param|' | cut -d'|' -f3 | sort |
+      while read -r name; do
+        [[ -z "$name" ]] && continue
+        eval "echo -n \"$name=\\\"\${$name:-}\\\"  \""
+      done
+    echo " "
+}
+
 #####################################################################
 ################### DO NOT MODIFY BELOW THIS LINE ###################
 
