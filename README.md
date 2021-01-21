@@ -32,8 +32,14 @@
 
 ## Examples
 
+These are some low-res GIF versions of the end result:
+
+Full size (800x1200):
+
 ![Example 1](assets/trumanshow.gif)
+
+Half size (400x600): 
 
 ![Example 2](assets/thehelp.gif)
 
-Actual video: [The Help (5MB .m4v)](assets/thehelp.m4v)
+And an actual video can be viewed here: [The Help (5MB .m4v)](assets/thehelp.m4v)
