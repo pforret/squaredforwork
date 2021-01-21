@@ -30,3 +30,10 @@
     <input>   : [parameters] input image/film name (1 or more)
     <output>  : [parameters] output file or '-' for automatic filename (1 or more)  
 
+## Examples
+
+![Example 1](assets/trumanshow.gif)
+
+![Example 2](assets/thehelp.gif)
+
+Actual video: [The Help (5MB .m4v)](assets/thehelp.m4v)
