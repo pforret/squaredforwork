@@ -125,7 +125,7 @@ image2movie() {
     # shellcheck disable=SC2154
     ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -ss 1 -t 40 -r 12 \
       -filter_complex "[0]split[base][text]; [text]drawtext=text='$opening': fontcolor=black:fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
-      -vcodec libx264 -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart \
+      -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart \
       -y "$reveal_movie" 2>&1 | progressbar lines "sfw.gif2mp4.$steps"
   fi
   video_details "$reveal_movie"
@@ -225,7 +225,7 @@ image2movie() {
     video_details "$modification"
   fi
 
-  rm "$smalljpg" "$reveal_movie" "$frame_last" "$frame_sharp" "$xfade" "$concat"
+  #rm "$smalljpg" "$reveal_movie" "$frame_last" "$frame_sharp" "$xfade" "$concat"
   open output
 }
 

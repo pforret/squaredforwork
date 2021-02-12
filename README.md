@@ -2,6 +2,8 @@
 
 **create reveal movies for pictures with imagemagick, ffmpeg and primitive**
 
+![](squared.jpg)
+
 ## Usage
 
     Program: sfw_movie.sh 1.2.1 by peter@forret.com
