@@ -300,7 +300,6 @@ function print_video_details() {
 }
 
 function media_details() {
-  require_binaries ffprobe ffmpeg
   ffprobe -v quiet -print_format json -show_format -show_streams "$1" | jq -r ".$2"
 }
 
