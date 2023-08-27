@@ -18,15 +18,17 @@ option|2|tiktok|export folder for tiktok|
 option|3|facebook|export folder for facebook|
 option|b|border|add border to original image|0
 option|c|credits|credits to add at the end|< Concept: @squaredforwork >
-option|e|extension|output extension|m4v
-option|l|log_dir|folder for log files |log
+option|e|extension|output extension|mp4
+option|l|log_dir|folder for log files |$HOME/log/$script_prefix
 option|m|method|primitive method|7
 option|o|opening|opening text|Guess the movie?
 option|p|steps|steps done by primitive|600
 option|r|resize|resize WxH|120x180
+option|s|full_size|pixels longest side|1200
 option|t|tmp_dir|folder for temp files|.tmp
 option|i|img_dir|folder for poster images|image
 option|j|out_dir|folder for output movies|output
+option|x|prefix|prefix for output files|sfw
 param|1|action|action to perform: image/imdb
 param|?|input|input image/film name
 param|?|output|output file or '-' for automatic filename
@@ -52,11 +54,9 @@ shuf|coreutils
 
 main() {
   require_binaries
-  folder_prep image 30
-  folder_prep output 30
-  action=$(lower_case "$action")
+
   title=""
-  case $action in
+  case ${action,,} in
   check)
     do_check
     ;;
@@ -67,6 +67,7 @@ main() {
     ;;
 
   imdb)
+    local film_image
     film_image=$(get_imdb_poster "$input")
     image2movie "$film_image" "$output"
     ;;
@@ -82,6 +83,23 @@ main() {
 ## Put your helper scripts here
 #####################################################################
 
+function grab_url(){
+  local url="$1"
+  local cache
+  cache="$tmp_dir/$(<<< "$url" cut -d/ -f3).$(<<< "$url" hash 8).html"
+  if [[ -s "$cache" ]] ; then
+    log "grab_url [$url] from cache [$cache]"
+    cat "$cache"
+  else
+    log "grab_url [$url]"
+    curl -s \
+      -H "user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/88.0.4324.182 Safari/537.36" \
+      "$url" \
+      | tee "$cache"
+  fi
+
+}
+
 image2movie() {
   # $1 = input image
   # $2 = output image
@@ -89,53 +107,64 @@ image2movie() {
   local input_image="$1"
   local output="$2"
   local input_short
+  [[ ! -d "$out_dir" ]] && mkdir -p "$out_dir"
+  folder_prep "$out_dir" 90
+  input_short=$(basename "$input_image" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|' | cut -c1-20)
+  log "Basename = [$input_short]"
+  local today uniq
+  today=$(date '+%Y-%m-%d')
+  uniq=$(echo "$input_image" | hash 4)
+
   if [[ "$output" == "-" || "$output" == "" ]]; then
     log "Input = [$input_image]"
-    input_short=$(basename "$input_image" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|')
-    log "Basename = [$input_short]"
     # shellcheck disable=SC2154
-    output="$out_dir/$input.$input_short.$extension"
-    folder_prep "output" 30
+    output="$out_dir/$prefix.$uniq.$input_short.$steps.$extension"
   fi
   log "Output = [$output]"
 
+  local lowres
   # shellcheck disable=SC2154
-  smalljpg="$tmp_dir/$input_short.small.jpg"
-  if [[ ! -f "$smalljpg" ]]; then
+  lowres="$tmp_dir/$input_short.small.jpg"
+  if [[ ! -f "$lowres" ]]; then
     # shellcheck disable=SC2154
-    progress "Resize input image to $resize: [$smalljpg]"
+    progress "Resize input image to $resize: [$lowres]"
     # shellcheck disable=SC2154
-    convert "$input_image" -bordercolor black -border "$border" -resize "${resize}"^ -gravity center -crop "${resize}+0+0" +repage "$smalljpg"
+    convert "$input_image" -bordercolor black -border "$border" -resize "${resize}"^ -gravity center -crop "${resize}+0+0" -statistic median 3x3 +repage "$lowres"
   fi
 
+  local reveal_gif
   # shellcheck disable=SC2154
   reveal_gif="$tmp_dir/$input_short.prim.$steps.gif"
   if [[ ! -f "$reveal_gif" ]]; then
     progress "Create animated gif with primitive: [$reveal_gif]"
+    local width
     width=$(echo "$resize" | cut -dx -f1)
-    primitive -i "$smalljpg" -o "$reveal_gif" -s 1200 -r "$width" -n "$steps" -m "$method" -bg FFFFFF -v \
+    # shellcheck disable=SC2154
+    primitive -i "$lowres" -o "$reveal_gif" -s "$full_size" -r "$width" -n "$steps" -m "$method" -bg FFFFFF -v \
     | progressbar lines "sfw.primitive.$steps"
   fi
-  video_details "$reveal_gif"
+  print_video_details "$reveal_gif"
 
+  local reveal_movie
   reveal_movie="$tmp_dir/$input_short.prim.$steps.mp4"
   if [[ ! -f "$reveal_movie" ]]; then
     progress "Convert GIF to MOV: [$reveal_movie]"
-    # -vf "drawtext=text='Guess the movie?':x=(w-text_w)/2:y=(h-text_h)/2:fontsize=24:fontcolor=white"
     # shellcheck disable=SC2154
-    ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -ss 1 -t 40 -r 12 \
+    ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -ss 1 -r 12 \
       -filter_complex "[0]split[base][text]; [text]drawtext=text='$opening': fontcolor=black:fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
       -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart \
       -y "$reveal_movie" 2>&1 | progressbar lines "sfw.gif2mp4.$steps"
   fi
-  video_details "$reveal_movie"
+  print_video_details "$reveal_movie"
 
+  local frame_last
   frame_last="$tmp_dir/$input_short.last.$steps.jpg"
   if [[ ! -f "$frame_last" ]]; then
     progress "Get last frame from gif: [$frame_last]"
     ffmpeg -sseof -3 -i "$reveal_movie" -update 1 -q:v 1 -y "$frame_last" 2>/dev/null
   fi
 
+  local gif_resolution frame_sharp
   gif_resolution=$(identify -verbose "$frame_last" | awk '/Geometry/ {print $2}' | cut -d+ -f1)
   frame_sharp="$tmp_dir/$input_short.sharp.jpg"
   if [[ ! -f "$frame_sharp" ]]; then
@@ -147,93 +176,114 @@ image2movie() {
       "$frame_sharp" 2>/dev/null
   fi
 
-  xfade="$tmp_dir/$input_short.xfade.$steps.mp4"
-  if [[ ! -f "$xfade" ]]; then
-    progress "Create x-fade to sharp: [$xfade]"
-    length=4
+  local crossfade
+  length=10
+  crossfade="$tmp_dir/$input_short.xfade.$length.mp4"
+  if [[ ! -f "$crossfade" ]]; then
+    progress "Create x-fade to sharp: [$crossfade]"
+    length=10
 
     ffmpeg -loop 1 -i "$frame_last" -loop 1 -i "$frame_sharp" -r 12 -vcodec libx264 -pix_fmt yuv420p \
       -filter_complex "[1:v][0:v]blend=all_expr='A*(if(gte(T,$length),1,T/$length))+B*(1-(if(gte(T,$length),1,T/$length)))'" \
-      -t $length -y "$xfade" 2>/dev/null
+      -t $length -y "$crossfade" 2>/dev/null
   fi
-  video_details "$xfade"
+  print_video_details "$crossfade"
 
+  local concat playlist
   concat="$tmp_dir/$input_short.concat.$steps.mp4"
   if [[ ! -f "$concat" ]]; then
     progress "Concat both videos: [$concat]"
     playlist="$tmp_dir/$(basename "$2" ".$extension").playlist.txt"
     echo "file '$(basename "$reveal_movie")'" >"$playlist"
-    echo "file '$(basename "$xfade")'" >>"$playlist"
+    echo "file '$(basename "$crossfade")'" >>"$playlist"
     ffmpeg -f concat -safe 0 -i "$playlist" -c copy -y "$concat" 2>/dev/null
     rm "$playlist"
   fi
-  video_details "$concat"
+  print_video_details "$concat"
+  local video_seconds start_fadeout
+  video_seconds=$(media_details "$concat" "format.duration")
+  log "Detected video length: $video_seconds sec"
+  start_fadeout=$(calculate "$video_seconds - 5")
 
   if [[ ! -f "$output" ]]; then
     progress "Add audio to video: [$output]"
-    # -vcodec libx264 -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -acodec copy -movflags +faststart
-    ffmpeg -i "$concat" -i "audio/love_taken_over.wav" -t 45 -af "afade=t=out:st=40:d=5" -vcodec libx264 -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart -y "$output" 2>/dev/null
+    log "Start music fadeout at $start_fadeout sec"
+    ffmpeg -i "$concat" -i "audio/love_taken_over.wav" -t "$video_seconds" \
+      -af "afade=t=out:st=$start_fadeout:d=5" -vcodec libx264 -profile:v main \
+      -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags \
+      +faststart -y "$output" 2>/dev/null
   fi
-  video_details "$output"
+  print_video_details "$output"
 
   # shellcheck disable=SC2154
   if [[ -n "$instagram" ]]; then
+    local b_output modification width height
     b_output=$(basename "$output")
-    modification="$instagram/${b_output//$extension/ig.$extension}"
+    [[ ! -d "$instagram" ]] && mkdir -p "$instagram"
+    modification="$instagram/$prefix.$uniq.$input_short.ig.$extension"
     width=1080
     height=1350
     if [[ ! -f "$modification" ]]; then
       progress "generate [$modification]"
       ffmpeg -i "$output" \
-        -vf "scale=$width:$height:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2" \
+        -r 24 -vf "scale=$width:$height:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2" \
         -y "$modification" \
         2>/dev/null
     fi
-    video_details "$modification"
+    print_video_details "$modification"
   fi
 
   # shellcheck disable=SC2154
   if [[ -n "$tiktok" ]]; then
     b_output=$(basename "$output")
-    modification="$tiktok/${b_output//$extension/tt.$extension}"
+    [[ ! -d "$tiktok" ]] && mkdir -p "$tiktok"
+    modification="$tiktok/$prefix.$uniq.$input_short.tt.$extension"
     width=1080
     height=1920
     if [[ ! -f "$modification" ]]; then
       progress "generate [$modification]"
       ffmpeg -i "$output" \
         -vf "scale=$width:$height:force_original_aspect_ratio=decrease,pad=$width:$height:(ow-iw)/2:(oh-ih)/2" \
+        -r 24 \
         -y "$modification" \
         2>/dev/null
     fi
-    video_details "$modification"
+    print_video_details "$modification"
   fi
 
   # shellcheck disable=SC2154
   if [[ -n "$facebook" ]]; then
     b_output=$(basename "$output")
-    modification="$facebook/${b_output//$extension/fb.$extension}"
+    [[ ! -d "$facebook" ]] && mkdir -p "$facebook"
+    modification="$facebook/$prefix.$uniq._fb.$extension"
     if [[ ! -f "$modification" ]]; then
       progress "generate [$modification]"
+      local temp_list extra_long
       temp_list="$input_short.fb.txt"
       echo "file '$output'" > "$temp_list"
       echo "file '$output'" >> "$temp_list"
-      ffmpeg -f concat -safe 0 -i "$temp_list" -t 47 -c copy \
+      extra_long=$(calculate "$video_seconds + 2")
+      log "Stretch FB video to $extra_long secs"
+      ffmpeg -f concat -safe 0 -i "$temp_list" -t "$extra_long" -c copy \
         -y "$modification" \
         2> /dev/null
       rm "$temp_list"
     fi
-    video_details "$modification"
+    print_video_details "$modification"
   fi
 
-  #rm "$smalljpg" "$reveal_movie" "$frame_last" "$frame_sharp" "$xfade" "$concat"
-  open output
+  rm "$lowres" "$reveal_movie" "$frame_last" "$frame_sharp" "$crossfade" "$concat"
+  # rm "$reveal_gif" # don't delete while testing script
+  open "$out_dir"
 }
 
 get_imdb_poster() {
   folder_prep "done" 365
   # $1  = source
-  chosen=0
+
+  local chosen=0
   if [[ "$1" = tt* ]] ; then
+    log "Download poster for movie [$1]"
       poster_image=$(download_imdb_poster "$1")
       if [[ -n "$poster_image" ]]; then
         chosen=1
@@ -242,11 +292,26 @@ get_imdb_poster() {
           date
         ) >"done/$1.done.txt"
       fi
+  else
+    while [[ $chosen -eq 0 ]]; do
+      imdb_id=$(pick_random_imdb "$1")
+      log "check title '$imdb_id' ..."
+      if [[ ! -f "done/$imdb_id.done.txt" ]]; then
+        poster_image=$(download_imdb_poster "$imdb_id")
+        if [[ -n "$poster_image" ]]; then
+          chosen=1
+          (
+            echo "$title"
+            date
+          ) >"done/$imdb_id.done.txt"
+        fi
+      fi
+    done
 
   fi
   while [[ $chosen -eq 0 ]]; do
     imdb_id=$(pick_random_imdb "$1")
-    log "check title $imdb_id ..."
+    log "check title '$imdb_id' ..."
     if [[ ! -f "done/$imdb_id.done.txt" ]]; then
       poster_image=$(download_imdb_poster "$imdb_id")
       if [[ -n "$poster_image" ]]; then
@@ -259,13 +324,14 @@ get_imdb_poster() {
     fi
   done
   echo "$poster_image"
-  # found a $imdb_id that has not been used before
+  # found an $imdb_id that has not been used before
 }
 
 download_imdb_poster() {
   # $1 = tt99999 movie id
 
-  title=$(curl -s "https://www.imdb.com/title/$1/" |
+  # find title
+  title=$(grab_url "https://www.imdb.com/title/$1/" |
     htmlq a |
     grep ' Poster' |
     htmlq -a title img |
@@ -274,7 +340,8 @@ download_imdb_poster() {
   success "Movie title: [$title]" >&2
 
   # find image page for poster
-  page_poster=$(curl -s "https://www.imdb.com/title/$1/" |
+  local page_poster
+  page_poster=$(grab_url "https://www.imdb.com/title/$1/" |
     htmlq -a href a |
     grep /title |
     grep mediaviewer |
@@ -283,12 +350,16 @@ download_imdb_poster() {
   page_poster="https://www.imdb.com$page_poster"
   log "Poster page = [$page_poster]"
 
-  img_poster=$(curl -s "$page_poster" |
+  # find image url for poster
+  local img_poster
+  img_poster=$(grab_url "$page_poster" |
     htmlq -a src img |
     head -1)
   [[ -z "$img_poster" ]] && echo "" && return 0
   log "Poster image = [$img_poster]"
 
+  # download poster image
+  local poster
   poster="$img_dir/$1.$(slugify "$title").jpg"
   log "Save to [$poster]"
   curl -s "$img_poster" -o "$poster"
@@ -323,7 +394,7 @@ END
     )
   fi
 
-  curl -s "$source_url" |
+  grab_url "$source_url" |
     htmlq a |
     grep "/title/tt" |
     grep -Eo "(tt[0-9]+)" |
@@ -331,7 +402,7 @@ END
     shuf -n 1
 }
 
-video_details() {
+function print_video_details() {
   # $1 = video file
   # Input #0, gif, from '.tmp/2020-11-25_bad-boys.primitive.gif':
   # Duration: 00:00:49.50, start: 0.000000, bitrate: 3765 kb/s
@@ -345,6 +416,7 @@ video_details() {
   #     service_provider: FFmpeg
   #   Stream #0:0[0x100]: Video: h264 (High) ([27][0][0][0] / 0x001B), yuv420p(progressive), 800x1200 [SAR 1:1 DAR 2:3], 12 fps, 12 tbr, 90k tbn, 24 tbc
 
+  local fname
   fname=$(basename "$1")
   ffmpeg -i "$1" 2>&1 |
     tr ',' "\n" |
@@ -357,13 +429,24 @@ video_details() {
   # 2020-11-27_tt0338013.eternal-sunshine-of-the-spotless-mind.m4v
 }
 
-tokenize() {
+
+function media_details(){
+  require_binaries ffprobe ffmpeg
+  ffprobe -v quiet -print_format json -show_format -show_streams "$1" | jq -r ".$2"
+}
+
+function tokenize() {
   lower_case "$1" |
     sed 's/[^0-9a-z_\s ]//g' |
     sed 's/ /-/g'
 }
 
-do_check(){
+function calculate(){
+  # shellcheck disable=SC2154
+  echo "$1" | bc -l | awk '{ printf "%.2f\n", $0 }'
+}
+
+function do_check(){
     echo -n "$char_succ Check dependencies: "
     list_dependencies | cut -d'|' -f1 | sort | xargs
 
@@ -400,7 +483,7 @@ do_check(){
 set -uo pipefail
 IFS=$'\n\t'
 # shellcheck disable=SC2120
-hash() {
+function hash() {
   length=${1:-6}
   # shellcheck disable=SC2230
   if [[ -n $(which md5sum) ]]; then

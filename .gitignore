@@ -5,3 +5,5 @@ done/
 image/
 log/
 output/
+/.env
+/export/

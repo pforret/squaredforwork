@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-
+set -ex
 folder_ig=~/Dropbox/projects/2020-SquaredForWork/instagram
 folder_tt=~/Dropbox/projects/2020-SquaredForWork/tiktok
 credits="\nConcept: @squaredforwork\nmusic: soundcloud.com/pforret"
-./sfw_movie.sh -1 "$folder_ig" -2 "$folder_tt" -c "$credits" imdb top -
+./sfw_movie.sh -v -1 "$folder_ig" -2 "$folder_tt" -c "$credits" imdb top -
 
 # ./sfw_movie.sh -1 "$folder_ig" -2 "$folder_tt" -c "$credits" imdb coming -
 
