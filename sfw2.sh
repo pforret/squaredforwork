@@ -117,7 +117,7 @@ function image2movie() {
   local input_short
   [[ ! -d "$out_dir" ]] && mkdir -p "$out_dir"
   Os:folder "$out_dir" 90
-  input_short=$(basename "$input_image" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|' | cut -c1-20)
+  input_short=$(basename "$input_image" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|' | cut -c1-12)
   IO:debug "Basename = [$input_short]"
   local today uniq
   today=$(date '+%Y-%m-%d')
@@ -142,7 +142,7 @@ function image2movie() {
 
   local reveal_gif
   # shellcheck disable=SC2154
-  reveal_gif="$tmp_dir/$input_short.prim.$steps.gif"
+  reveal_gif="$tmp_dir/$input_short.prim.$method.$steps.gif"
   if [[ ! -f "$reveal_gif" ]]; then
     IO:progress "Create animated gif with primitive: [$reveal_gif]"
     local width
@@ -185,7 +185,7 @@ function image2movie() {
   fi
 
   local crossfade
-  length=10
+  local length=10
   crossfade="$tmp_dir/$input_short.xfade.$length.mp4"
   if [[ ! -f "$crossfade" ]]; then
     IO:progress "Create x-fade to sharp: [$crossfade]"
@@ -211,15 +211,18 @@ function image2movie() {
   local video_seconds start_fadeout
   video_seconds=$(media_details "$concat" "format.duration")
   IO:debug "Detected video length: $video_seconds sec"
-  start_fadeout=$(calculate "$video_seconds - 5")
 
+  local music_fadeout=5
+  local full_length
+  full_length=$(calculate "$video_seconds + 2")
+  start_fadeout=$(calculate "$full_length - $music_fadeout")
   if [[ ! -f "$output" ]]; then
     IO:progress "Add audio to video: [$output]"
     IO:debug "Start music fadeout at $start_fadeout sec"
-    ffmpeg -i "$concat" -i "audio/love_taken_over.wav" -t "$video_seconds" \
+    ffmpeg -i "$concat" -i "$script_install_folder/audio/love_taken_over.wav" -t "$full_length" \
       -af "afade=t=out:st=$start_fadeout:d=5" -vcodec libx264 -profile:v main \
       -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags \
-      +faststart -y "$output" 2>/dev/null
+      +faststart -y "$output" &> "$log_dir/$(basename "$output" ".$extension").log"
   fi
   print_video_details "$output"
 
@@ -271,7 +274,7 @@ function image2movie() {
       echo "file '$output'" >"$temp_list"
       echo "file '$output'" >>"$temp_list"
       extra_long=$(calculate "$video_seconds + 2")
-      log "Stretch FB video to $extra_long secs"
+      IO:debug "Stretch FB video to $extra_long secs"
       ffmpeg -f concat -safe 0 -i "$temp_list" -t "$extra_long" -c copy \
         -y "$modification" \
         2>/dev/null
@@ -353,6 +356,7 @@ function IO:initialize() {
     txtUnderline=$(tput smul)
   fi
 
+  local unicode
   [[ $(echo -e '\xe2\x82\xac') == '€' ]] && unicode=1 || unicode=0 # detect if unicode is supported
   if [[ $unicode -gt 0 ]]; then
     char_succes="✅"
@@ -422,7 +426,7 @@ function IO:progress() {
 function IO:countdown() {
   local seconds=${1:-5}
   local message=${2:-Countdown :}
-
+  local i
   if ((piped)); then
     IO:print "$message $seconds seconds"
   else
@@ -494,6 +498,7 @@ function Tool:throughput() {
   time_finished="$(Tool:time)"
   duration="$(Tool:calc "$time_finished - $time_started")"
   seconds="$(Tool:round "$duration")"
+  local ops
   if [[ "$operations" -gt 1 ]]; then
     if [[ $operations -gt $seconds ]]; then
       ops=$(Tool:calc "$operations / $duration")
@@ -596,10 +601,10 @@ function Str:digest() {
   fi
 }
 
-# Gha: function should only be run inside of a Github Action
+# Gha: function should only be run inside a GitHub Action
 
 function Gha:finish() {
-  [[ -z "${RUNNER_OS:-}" ]] && IO:die "This should only run inside a Github Action, don't run it on your machine"
+  [[ -z "${RUNNER_OS:-}" ]] && IO:die "This should only run inside a GitHub Action, don't run it on your machine"
   git config user.name "Bashew Runner"
   git config user.email "actions@users.noreply.github.com"
   timestamp=$(date -u)
@@ -678,7 +683,6 @@ Script:show_tips() {
 }
 
 Script:check() {
-  local name
   if [[ -n $(Option:filter flag) ]]; then
     IO:print "## ${txtInfo}boolean flags${txtReset}:"
     Option:filter flag |
@@ -914,6 +918,7 @@ function Option:parse() {
 
     local choices_list
     local valid_choice
+    local param
     for param in $choices; do
       [[ $# -eq 0 ]] && IO:die "need choice [$param]"
       [[ -z "$1" ]] && IO:die "need choice [$param]"
@@ -1229,6 +1234,7 @@ function Os:import_env() {
     )
   fi
 
+  local env_file
   for env_file in "${env_files[@]}"; do
     if [[ -f "$env_file" ]]; then
       IO:debug "$config_icon Read  dotenv: [$env_file]"
