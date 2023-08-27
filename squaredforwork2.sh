@@ -8,14 +8,13 @@ readonly run_as_root=-1 # run_as_root: 0 = don't check anything / 1 = script MUS
 readonly script_description="Create reveal videos of images"
 ## some initialisation
 action=""
-script_prefix=""
+script_file_prefix=""
 script_basename=""
 install_package=""
 temp_files=()
 
 function Option:config() {
   grep <<<"
-#commented lines will be filtered
 flag|h|help|show usage
 flag|q|quiet|no output
 flag|v|verbose|output more
@@ -26,16 +25,16 @@ option|3|facebook|export folder for facebook|
 option|b|border|add border to original image|0
 option|c|credits|credits to add at the end|< Concept: @squaredforwork >
 option|e|extension|output extension|mp4
-option|l|log_dir|folder for log files |$HOME/log/$script_prefix
+option|l|log_dir|folder for log files |$HOME/log/$script_file_prefix
 option|m|method|primitive method|7
 option|o|opening|opening text|Guess the movie?
 option|p|steps|steps done by primitive|600
 option|r|resize|resize WxH|120x180
 option|s|full_size|pixels longest side|1200
-option|t|tmp_dir|folder for temp files|/tmp/$script_prefix
+option|t|tmp_dir|folder for temp files|/tmp/$script_file_prefix
 option|i|img_dir|folder for poster images|image
 option|j|out_dir|folder for output movies|export
-option|x|prefix|prefix for output files|sfw
+option|x|file_prefix|prefix for output files|sfw
 choice|1|action|action to perform|image,imdb,check,env,update
 param|?|input|input image/film name
 param|?|output|output file or '-' for automatic filename
@@ -63,15 +62,15 @@ Script:main() {
 
   case "${action,,}" in
   image)
-    #TIP: use «$script_prefix image» to ...
-    #TIP:> $script_prefix image
+    #TIP: use «$script_file_prefix image» to ...
+    #TIP:> $script_file_prefix image
     # shellcheck disable=SC2154
     image2movie "$input" "$output"
     ;;
 
   imdb)
-    #TIP: use «$script_prefix imdb» to ...
-    #TIP:> $script_prefix imdb
+    #TIP: use «$script_file_prefix imdb» to ...
+    #TIP:> $script_file_prefix imdb
     local film_image
     # shellcheck disable=SC2154
     film_image=$(get_imdb_poster "$input")
@@ -81,17 +80,17 @@ Script:main() {
 
   check | env)
     ## leave this default action, it will make it easier to test your script
-    #TIP: use «$script_prefix check» to check if this script is ready to execute and what values the options/flags are
-    #TIP:> $script_prefix check
-    #TIP: use «$script_prefix env» to generate an example .env file
-    #TIP:> $script_prefix env > .env
+    #TIP: use «$script_file_prefix check» to check if this script is ready to execute and what values the options/flags are
+    #TIP:> $script_file_prefix check
+    #TIP: use «$script_file_prefix env» to generate an example .env file
+    #TIP:> $script_file_prefix env > .env
     Script:check
     ;;
 
   update)
     ## leave this default action, it will make it easier to test your script
-    #TIP: use «$script_prefix update» to update to the latest version
-    #TIP:> $script_prefix update
+    #TIP: use «$script_file_prefix update» to update to the latest version
+    #TIP:> $script_file_prefix update
     Script:git_pull
     ;;
 
@@ -126,7 +125,7 @@ function image2movie() {
   if [[ "$output" == "-" || "$output" == "" ]]; then
     IO:debug "Input = [$input_image]"
     # shellcheck disable=SC2154
-    output="$out_dir/$prefix.$uniq.$input_short.$steps.$extension"
+    output="$out_dir/$file_prefix.$uniq.$input_short.$steps.$extension"
   fi
   IO:debug "Output = [$output]"
 
@@ -231,7 +230,7 @@ function image2movie() {
     local b_output modification width height
     b_output=$(basename "$output")
     [[ ! -d "$instagram" ]] && mkdir -p "$instagram"
-    modification="$instagram/$prefix.$uniq.$input_short.ig.$extension"
+    modification="$instagram/$file_prefix.$uniq.$input_short.ig.$extension"
     width=1080
     height=1350
     if [[ ! -f "$modification" ]]; then
@@ -248,7 +247,7 @@ function image2movie() {
   if [[ -n "$tiktok" ]]; then
     b_output=$(basename "$output")
     [[ ! -d "$tiktok" ]] && mkdir -p "$tiktok"
-    modification="$tiktok/$prefix.$uniq.$input_short.tt.$extension"
+    modification="$tiktok/$file_prefix.$uniq.$input_short.tt.$extension"
     width=1080
     height=1920
     if [[ ! -f "$modification" ]]; then
@@ -266,7 +265,7 @@ function image2movie() {
   if [[ -n "$facebook" ]]; then
     b_output=$(basename "$output")
     [[ ! -d "$facebook" ]] && mkdir -p "$facebook"
-    modification="$facebook/$prefix.$uniq._fb.$extension"
+    modification="$facebook/$file_prefix.$uniq._fb.$extension"
     if [[ ! -f "$modification" ]]; then
       IO:progress "generate [$modification]"
       local temp_list extra_long
@@ -320,7 +319,7 @@ set -uo pipefail
 IFS=$'\n\t'
 force=0
 help=0
-error_prefix=""
+error_file_prefix=""
 
 #to enable verbose even before option parsing
 verbose=0
@@ -377,7 +376,7 @@ function IO:initialize() {
     clean_icon="[c]"
     require_icon="[r]"
   fi
-  error_prefix="${txtError}>${txtReset}"
+  error_file_prefix="${txtError}>${txtReset}"
 }
 
 function IO:print() {
@@ -617,9 +616,9 @@ function Gha:finish() {
 }
 
 trap "IO:die \"ERROR \$? after \$SECONDS seconds \n\
-\${error_prefix} last command : '\$BASH_COMMAND' \" \
+\${error_file_prefix} last command : '\$BASH_COMMAND' \" \
 \$(< \$script_install_path awk -v lineno=\$LINENO \
-'NR == lineno {print \"\${error_prefix} from line \" lineno \" : \" \$0}')" INT TERM EXIT
+'NR == lineno {print \"\${error_file_prefix} from line \" lineno \" : \" \$0}')" INT TERM EXIT
 # cf https://askubuntu.com/questions/513932/what-is-the-bash-command-variable-good-for
 
 Script:exit() {
@@ -644,7 +643,7 @@ Script:check_version() {
       IO:progress "Check for latest version - $remote"
       git remote update &>/dev/null
       if [[ $(git rev-list --count "HEAD...HEAD@{upstream}" 2>/dev/null) -gt 0 ]]; then
-        IO:print "There is a more recent update of this script - run <<$script_prefix update>> to update"
+        IO:print "There is a more recent update of this script - run <<$script_file_prefix update>> to update"
       fi
     fi
     # shellcheck disable=SC2164
@@ -674,10 +673,10 @@ Script:show_tips() {
       ' |
     awk \
       -v script_basename="$script_basename" \
-      -v script_prefix="$script_prefix" \
+      -v script_file_prefix="$script_file_prefix" \
       '{
       gsub(/\$script_basename/,script_basename);
-      gsub(/\$script_prefix/,script_prefix);
+      gsub(/\$script_file_prefix/,script_file_prefix);
       print ;
       }'
 }
@@ -1101,7 +1100,7 @@ function Script:meta() {
   shell_brand=""
   shell_version=""
 
-  script_prefix=$(basename "${BASH_SOURCE[0]}" .sh)
+  script_file_prefix=$(basename "${BASH_SOURCE[0]}" .sh)
   script_basename=$(basename "${BASH_SOURCE[0]}")
   execution_day=$(date "+%Y-%m-%d")
 
@@ -1202,7 +1201,7 @@ function Script:initialize() {
   if [[ -n "${log_dir:-}" ]]; then
     # clean up LOG folder after 1 month
     Os:folder "$log_dir" 30
-    log_file="$log_dir/$script_prefix.$execution_day.log"
+    log_file="$log_dir/$script_file_prefix.$execution_day.log"
     IO:debug "$config_icon log_file: $log_file"
   fi
 }
@@ -1220,17 +1219,17 @@ function Os:import_env() {
   if [[ $(pwd) == "$script_install_folder" ]]; then
     env_files=(
       "$script_install_folder/.env"
-      "$script_install_folder/.$script_prefix.env"
-      "$script_install_folder/$script_prefix.env"
+      "$script_install_folder/.$script_file_prefix.env"
+      "$script_install_folder/$script_file_prefix.env"
     )
   else
     env_files=(
       "$script_install_folder/.env"
-      "$script_install_folder/.$script_prefix.env"
-      "$script_install_folder/$script_prefix.env"
+      "$script_install_folder/.$script_file_prefix.env"
+      "$script_install_folder/$script_file_prefix.env"
       "./.env"
-      "./.$script_prefix.env"
-      "./$script_prefix.env"
+      "./.$script_file_prefix.env"
+      "./$script_file_prefix.env"
     )
   fi
 
