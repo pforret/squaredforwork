@@ -2,7 +2,7 @@
 
 **create reveal movies for pictures with imagemagick, ffmpeg and primitive**
 
-![](squared.jpg)
+![](assets/squared.jpg)
 
 ## Usage
 
