@@ -129,7 +129,7 @@ image2movie() {
     # shellcheck disable=SC2154
     progress "Resize input image to $resize: [$lowres]"
     # shellcheck disable=SC2154
-    convert "$input_image" -bordercolor black -border "$border" -resize "${resize}"^ -gravity center -crop "${resize}+0+0" -statistic median 3x3 +repage "$lowres"
+    convert "$input_image" -bordercolor black -border "$border" -resize "${resize}"^ -gravity center -crop "${resize}+0+0" -statistic median 3x3 -normalize +repage "$lowres"
   fi
 
   local reveal_gif
@@ -272,8 +272,7 @@ image2movie() {
     print_video_details "$modification"
   fi
 
-  rm "$lowres" "$reveal_movie" "$frame_last" "$frame_sharp" "$crossfade" "$concat"
-  # rm "$reveal_gif" # don't delete while testing script
+  rm "$lowres" "$reveal_movie" "$frame_last" "$frame_sharp" "$crossfade" "$concat" "$reveal_gif"
   open "$out_dir"
 }
 
