@@ -56,7 +56,7 @@ Script:main() {
   Os:require "ffprobe" "ffmpeg"
   Os:require "gawk"
   Os:require "htmlq"
-  Os:require "indentify"
+  Os:require "identify"
   Os:require "primitive" "go get -u github.com/fogleman/primitive"
   Os:require "progressbar" "basher install pforret/progressbar"
   Os:require "shuf" "coreutils"
