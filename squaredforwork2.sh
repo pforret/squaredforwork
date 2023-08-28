@@ -19,6 +19,7 @@ flag|h|help|show usage
 flag|q|quiet|no output
 flag|v|verbose|output more
 flag|f|force|do not ask for confirmation (always yes)
+flag|g|grain|add grain to final photo
 option|1|instagram|export folder for instagram|
 option|2|tiktok|export folder for tiktok|
 option|3|facebook|export folder for facebook|
@@ -179,6 +180,7 @@ function image2movie() {
     # shellcheck disable=SC2086
     convert "$input_image" -bordercolor black -border "$border" -resize "${gif_resolution}"^ -gravity center -crop "${gif_resolution}+0+0" +repage \
       -font fonts/AmaticSC-Bold.ttf -fill white -gravity North -pointsize 40 -undercolor "rgba(0,0,0,0.7)" \
+      -attenuate 1 +noise Gaussian \
       -annotate +0+8 "$credits" \
       "$frame_sharp" 2>/dev/null
   fi
