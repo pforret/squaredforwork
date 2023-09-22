@@ -133,9 +133,10 @@ function image2movie() {
   local lowres
   # shellcheck disable=SC2154
   lowres="$tmp_dir/$input_short.small.jpg"
+  # shellcheck disable=SC2154
+  IO:debug "Resize input image to $resize: [$lowres]"
   if [[ ! -f "$lowres" ]]; then
     # shellcheck disable=SC2154
-    IO:progress "Resize input image to $resize: [$lowres]"
     # shellcheck disable=SC2154
     convert "$input_image" -bordercolor black -border "$border" -resize "${resize}"^ -gravity center -crop "${resize}+0+0" -statistic median 3x3 -normalize +repage "$lowres"
   fi
@@ -143,8 +144,8 @@ function image2movie() {
   local reveal_gif
   # shellcheck disable=SC2154
   reveal_gif="$tmp_dir/$input_short.prim.$method.$steps.gif"
+  IO:debug "Create animated gif with primitive: [$reveal_gif]"
   if [[ ! -f "$reveal_gif" ]]; then
-    IO:progress "Create animated gif with primitive: [$reveal_gif]"
     local width
     width=$(echo "$resize" | cut -dx -f1)
     # shellcheck disable=SC2154
@@ -155,11 +156,15 @@ function image2movie() {
 
   local reveal_movie
   reveal_movie="$tmp_dir/$input_short.prim.$steps.mp4"
+  IO:debug "Convert GIF to MOV: [$reveal_movie]"
   if [[ ! -f "$reveal_movie" ]]; then
-    IO:progress "Convert GIF to MOV: [$reveal_movie]"
+    local font_specs="fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf"
     # shellcheck disable=SC2154
     ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -ss 1 -r 12 \
-      -filter_complex "[0]split[base][text]; [text]drawtext=text='$opening': fontcolor=black:fontsize=120:fontfile=fonts/AmaticSC-Bold.ttf:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=3:d=1:alpha=1[subtitles]; [base][subtitles]overlay" \
+      -filter_complex "
+        [0]split[base][text];
+        [text]drawtext=text='$opening':fontcolor=black:$font_specs:x=(w-text_w)/2+2:y=(h-text_h)/2+2,format=yuv420p,fade=t=out:st=5:d=1:alpha=1,drawtext=text='$opening':fontcolor=white:$font_specs:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=5:d=1:alpha=1[subtitles];
+        [base][subtitles]overlay" \
       -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart \
       -y "$reveal_movie" 2>&1 | progressbar lines "sfw.gif2mp4.$steps"
   fi
@@ -168,15 +173,17 @@ function image2movie() {
   local frame_last
   frame_last="$tmp_dir/$input_short.last.$steps.jpg"
   if [[ ! -f "$frame_last" ]]; then
-    IO:progress "Get last frame from gif: [$frame_last]"
+    IO:debug "Get last frame from gif: [$frame_last]"
     ffmpeg -sseof -3 -i "$reveal_movie" -update 1 -q:v 1 -y "$frame_last" 2>/dev/null
   fi
 
   local gif_resolution frame_sharp
   gif_resolution=$(identify -verbose "$frame_last" | awk '/Geometry/ {print $2}' | cut -d+ -f1)
   frame_sharp="$tmp_dir/$input_short.sharp.jpg"
+  IO:debug "Get sharp frame from input: [$frame_sharp]"
+  # shellcheck disable=SC2154
+  IO:debug "Credits = '$credits'"
   if [[ ! -f "$frame_sharp" ]]; then
-    IO:progress "Get sharp frame from input: [$frame_sharp]"
     # shellcheck disable=SC2086
     convert "$input_image" -bordercolor black -border "$border" -resize "${gif_resolution}"^ -gravity center -crop "${gif_resolution}+0+0" +repage \
       -font fonts/AmaticSC-Bold.ttf -fill white -gravity North -pointsize 40 -undercolor "rgba(0,0,0,0.7)" \
@@ -185,18 +192,18 @@ function image2movie() {
       "$frame_sharp" 2>/dev/null
   fi
 
-  local crossfade
+  local cross_fade
   local length=10
-  crossfade="$tmp_dir/$input_short.xfade.$length.mp4"
-  if [[ ! -f "$crossfade" ]]; then
-    IO:progress "Create x-fade to sharp: [$crossfade]"
+  cross_fade="$tmp_dir/$input_short.xfade.$length.mp4"
+  if [[ ! -f "$cross_fade" ]]; then
+    IO:progress "Create x-fade to sharp: [$cross_fade]"
     length=10
 
     ffmpeg -loop 1 -i "$frame_last" -loop 1 -i "$frame_sharp" -r 12 -vcodec libx264 -pix_fmt yuv420p \
       -filter_complex "[1:v][0:v]blend=all_expr='A*(if(gte(T,$length),1,T/$length))+B*(1-(if(gte(T,$length),1,T/$length)))'" \
-      -t $length -y "$crossfade" 2>/dev/null
+      -t $length -y "$cross_fade" 2>/dev/null
   fi
-  print_video_details "$crossfade"
+  print_video_details "$cross_fade"
 
   local concat playlist
   concat="$tmp_dir/$input_short.concat.$steps.mp4"
@@ -204,7 +211,7 @@ function image2movie() {
     IO:progress "Concat both videos: [$concat]"
     playlist="$tmp_dir/$(basename "$2" ".$extension").playlist.txt"
     echo "file '$(basename "$reveal_movie")'" >"$playlist"
-    echo "file '$(basename "$crossfade")'" >>"$playlist"
+    echo "file '$(basename "$cross_fade")'" >>"$playlist"
     ffmpeg -f concat -safe 0 -i "$playlist" -c copy -y "$concat" 2>/dev/null
     rm "$playlist"
   fi
@@ -220,6 +227,7 @@ function image2movie() {
   if [[ ! -f "$output" ]]; then
     IO:progress "Add audio to video: [$output]"
     IO:debug "Start music fadeout at $start_fadeout sec"
+    # shellcheck disable=SC2154
     ffmpeg -i "$concat" -i "$script_install_folder/audio/love_taken_over.wav" -t "$full_length" \
       -af "afade=t=out:st=$start_fadeout:d=5" -vcodec libx264 -profile:v main \
       -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags \
@@ -267,7 +275,7 @@ function image2movie() {
   if [[ -n "$facebook" ]]; then
     b_output=$(basename "$output")
     [[ ! -d "$facebook" ]] && mkdir -p "$facebook"
-    modification="$facebook/$file_prefix.$uniq._fb.$extension"
+    modification="$facebook/$file_prefix.$uniq.$input_short.fb.$extension"
     if [[ ! -f "$modification" ]]; then
       IO:progress "generate [$modification]"
       local temp_list extra_long
@@ -284,7 +292,7 @@ function image2movie() {
     print_video_details "$modification"
   fi
 
-  rm "$lowres" "$reveal_movie" "$frame_last" "$frame_sharp" "$crossfade" "$concat" "$reveal_gif"
+  rm "$lowres" "$reveal_movie" "$frame_last" "$frame_sharp" "$cross_fade" "$concat" "$reveal_gif"
   open "$out_dir"
 }
 
@@ -605,6 +613,7 @@ function Str:digest() {
 # Gha: function should only be run inside a GitHub Action
 
 function Gha:finish() {
+  local timestamp message
   [[ -z "${RUNNER_OS:-}" ]] && IO:die "This should only run inside a GitHub Action, don't run it on your machine"
   git config user.name "Bashew Runner"
   git config user.email "actions@users.noreply.github.com"
@@ -624,6 +633,7 @@ trap "IO:die \"ERROR \$? after \$SECONDS seconds \n\
 # cf https://askubuntu.com/questions/513932/what-is-the-bash-command-variable-good-for
 
 Script:exit() {
+  local temp_file
   for temp_file in "${temp_files[@]-}"; do
     [[ -f "$temp_file" ]] && (
       IO:debug "Delete temp file [$temp_file]"
@@ -1090,17 +1100,18 @@ function Os:beep() {
   esac
 }
 
+git_repo_remote=""
+git_repo_root=""
+os_kernel=""
+os_machine=""
+os_name=""
+os_version=""
+script_hash="?"
+script_lines="?"
+shell_brand=""
+shell_version=""
+
 function Script:meta() {
-  git_repo_remote=""
-  git_repo_root=""
-  os_kernel=""
-  os_machine=""
-  os_name=""
-  os_version=""
-  script_hash="?"
-  script_lines="?"
-  shell_brand=""
-  shell_version=""
 
   script_file_prefix=$(basename "${BASH_SOURCE[0]}" .sh)
   script_basename=$(basename "${BASH_SOURCE[0]}")
