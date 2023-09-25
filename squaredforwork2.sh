@@ -246,7 +246,7 @@ function image2movie() {
     ffmpeg -i "$concat" -i "$script_install_folder/audio/love_taken_over.wav" -t "$full_length" \
       -af "afade=t=out:st=$start_fadeout:d=5" -vcodec libx264 -profile:v main \
       -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags \
-      +faststart -y "$output" &> "$log_dir/$(basename "$output" ".$extension").log"
+      +faststart -y "$output" 2>/dev/null
   fi
   print_video_details "$output"
 
