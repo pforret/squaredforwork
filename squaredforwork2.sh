@@ -117,7 +117,7 @@ function image2movie() {
   local input_short
   [[ ! -d "$out_dir" ]] && mkdir -p "$out_dir"
   Os:folder "$out_dir" 90
-  input_short=$(basename "$input_image" .jpg | sed 's/tt[0-9]*\.//' | sed 's| |-|' | cut -c1-12)
+  input_short=$(basename "$input_image" .jpg | sed 's/tt[0-9]*\.//' | tr -d ' ' | tr -d '-' | cut -c1-12)
   IO:debug "Basename = [$input_short]"
   local today uniq
   today=$(date '+%Y-%m-%d')
@@ -149,8 +149,8 @@ function image2movie() {
     local width
     width=$(echo "$resize" | cut -dx -f1)
     # shellcheck disable=SC2154
-    primitive -i "$lowres" -o "$reveal_gif" -s "$full_size" -r "$width" -n "$steps" -m "$method" -bg FFFFFF -v |
-      progressbar lines "sfw.primitive.$steps"
+    primitive -i "$lowres" -o "$reveal_gif" -s "$full_size" -r "$width" -n "$steps" -m "$method" -bg FFFFFF -v \
+    | progressbar lines "sfw.primitive.$steps"
   fi
   print_video_details "$reveal_gif"
 
@@ -163,12 +163,27 @@ function image2movie() {
     ffmpeg -i "$reveal_gif" -vcodec libx264 -pix_fmt yuv420p -ss 1 -r 12 \
       -filter_complex "
         [0]split[base][text];
-        [text]drawtext=text='$opening':fontcolor=black:$font_specs:x=(w-text_w)/2+2:y=(h-text_h)/2+2,format=yuv420p,fade=t=out:st=5:d=1:alpha=1,drawtext=text='$opening':fontcolor=white:$font_specs:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=5:d=1:alpha=1[subtitles];
+        [text]drawtext=text='$opening':fontcolor=black:$font_specs:x=(w-text_w)/2+2:y=(h-text_h)/2+2,format=yuv420p,fade=t=out:st=10:d=1:alpha=1,
+        drawtext=text='$opening':fontcolor=white:$font_specs:x=(w-text_w)/2:y=(h-text_h)/2,format=yuv420p,fade=t=out:st=9:d=1:alpha=1[subtitles];
         [base][subtitles]overlay" \
       -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart \
-      -y "$reveal_movie" 2>&1 | progressbar lines "sfw.gif2mp4.$steps"
+      -y "$reveal_movie" 2>&1 \
+      | progressbar lines "sfw.gif2mp4.$steps"
   fi
   print_video_details "$reveal_movie"
+
+  local fast_movie
+  fast_movie="$tmp_dir/$input_short.fast.$steps.mp4"
+  IO:debug "Convert GIF to MOV: [$reveal_movie]"
+  if [[ ! -f "$fast_movie" ]]; then
+    # shellcheck disable=SC2154
+    ffmpeg -r 12 -i "$reveal_movie" -vcodec libx264 -pix_fmt yuv420p -r 24 \
+      -filter_complex "[0:v]setpts=0.5*PTS[v]" -map "[v]" \
+      -profile:v main -level 3.1 -preset medium -crf 23 -x264-params ref=4 -movflags +faststart \
+      -y "$fast_movie" 2>&1 \
+      | progressbar lines "sfw.fastmp4.$steps"
+  fi
+  print_video_details "$fast_movie"
 
   local frame_last
   frame_last="$tmp_dir/$input_short.last.$steps.jpg"
@@ -210,7 +225,7 @@ function image2movie() {
   if [[ ! -f "$concat" ]]; then
     IO:progress "Concat both videos: [$concat]"
     playlist="$tmp_dir/$(basename "$2" ".$extension").playlist.txt"
-    echo "file '$(basename "$reveal_movie")'" >"$playlist"
+    echo "file '$(basename "$fast_movie")'" >"$playlist"
     echo "file '$(basename "$cross_fade")'" >>"$playlist"
     ffmpeg -f concat -safe 0 -i "$playlist" -c copy -y "$concat" 2>/dev/null
     rm "$playlist"
@@ -292,19 +307,20 @@ function image2movie() {
     print_video_details "$modification"
   fi
 
-  rm "$lowres" "$reveal_movie" "$frame_last" "$frame_sharp" "$cross_fade" "$concat" "$reveal_gif"
+  rm "$lowres" "$reveal_gif" "$reveal_movie" "$fast_movie" "$frame_last" "$frame_sharp" "$cross_fade" "$concat"
   open "$out_dir"
 }
 
 function print_video_details() {
   # $1 = video file
-  local fname
-  fname=$(basename "$1")
+  [[ ! -f "$1" ]] && IO:die "Video file [$1] does not exist"
+  local video_name
+  video_name=$(basename "$1")
   ffmpeg -i "$1" 2>&1 |
     tr ',' "\n" |
     tr '[' "\n" |
-    awk -v fname="$fname" '
-  /Duration:/ {gsub(/00:/,""); printf("%-60s: %s sec ",fname,$0);}
+    awk -v video_name="$video_name" '
+  /Duration:/ {gsub(/00:/,""); printf("%-60s: %s sec ",video_name,$0);}
   /[0-9][0-9]+x[0-9]+/ {printf("%s ",$0);} 
   /[0-9]+ fps/ {printf("%s ",$0);} 
   END {print "               "}'
