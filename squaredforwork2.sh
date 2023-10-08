@@ -255,7 +255,7 @@ function image2movie() {
     local b_output modification width height
     b_output=$(basename "$output")
     [[ ! -d "$instagram" ]] && mkdir -p "$instagram"
-    modification="$instagram/$file_prefix.$uniq.$input_short.ig.$extension"
+    modification="$instagram/$file_prefix.$input_short.$uniq.ig.$extension"
     width=1080
     height=1350
     if [[ ! -f "$modification" ]]; then
@@ -272,7 +272,7 @@ function image2movie() {
   if [[ -n "$tiktok" ]]; then
     b_output=$(basename "$output")
     [[ ! -d "$tiktok" ]] && mkdir -p "$tiktok"
-    modification="$tiktok/$file_prefix.$uniq.$input_short.tt.$extension"
+    modification="$tiktok/$file_prefix.$input_short.$uniq.tt.$extension"
     width=1080
     height=1920
     if [[ ! -f "$modification" ]]; then
@@ -290,7 +290,7 @@ function image2movie() {
   if [[ -n "$facebook" ]]; then
     b_output=$(basename "$output")
     [[ ! -d "$facebook" ]] && mkdir -p "$facebook"
-    modification="$facebook/$file_prefix.$uniq.$input_short.fb.$extension"
+    modification="$facebook/$file_prefix.$input_short.$uniq.fb.$extension"
     if [[ ! -f "$modification" ]]; then
       IO:progress "generate [$modification]"
       local temp_list extra_long
