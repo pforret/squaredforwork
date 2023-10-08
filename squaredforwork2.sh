@@ -126,7 +126,7 @@ function image2movie() {
   if [[ "$output" == "-" || "$output" == "" ]]; then
     IO:debug "Input = [$input_image]"
     # shellcheck disable=SC2154
-    output="$out_dir/$file_prefix.$uniq.$input_short.$steps.$extension"
+    output="$out_dir/$file_prefix.$input_short.$uniq.$steps.$extension"
   fi
   IO:debug "Output = [$output]"
 
